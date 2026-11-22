@@ -3,8 +3,10 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { expect, test } from 'vitest'
 import { compose } from './compose.js'
-import type { Answers, Layer } from './layer.js'
+import type { Answers, Layer, Project } from './layer.js'
 import { options, resolve } from './resolve.js'
+
+const project: Project = { dir: 'app', name: 'app', cliVersion: '0.0.0' }
 
 const answers: Answers = {
   projectType: 'vite-react',
@@ -54,7 +56,7 @@ test('copies owned files, merges JSON with sorted deps, renders shared files', (
   })
   const linter = layer('linting', 'biome', { render: { 'biome.json': (c) => c.importBans.join(',') } })
 
-  const tree = compose([base, tracking, sentry, obs, linter], answers)
+  const tree = compose([base, tracking, sentry, obs, linter], answers, project)
 
   expect([...tree.keys()]).toEqual(['biome.json', 'package.json', 'src/App.tsx', 'src/main.tsx'])
   const deps = JSON.parse(tree.get('package.json') ?? '{}').dependencies
@@ -62,29 +64,29 @@ test('copies owned files, merges JSON with sorted deps, renders shared files', (
   expect(Object.keys(deps)).toEqual(['@sentry/react', 'react'])
   expect(tree.get('src/main.tsx')).toBe('observability:ErrorBoundary\ntracking:t()') // fixed concern order
   expect(tree.get('biome.json')).toBe('@sentry/**') // deduped
-  expect(compose([base, tracking, sentry, obs, linter], answers)).toEqual(tree) // deterministic
+  expect(compose([base, tracking, sentry, obs, linter], answers, project)).toEqual(tree) // deterministic
 })
 
 test('collisions throw', () => {
   const a = layer('base', 'base', { dir: dirWith({ 'x.txt': 'a' }) })
   const b = layer('linting', 'biome', { dir: dirWith({ 'x.txt': 'b' }) })
-  expect(() => compose([a, b], answers)).toThrow(/x.txt is owned by both base\/base and linting\/biome/)
+  expect(() => compose([a, b], answers, project)).toThrow(/x.txt is owned by both base\/base and linting\/biome/)
 
   const json = (v: string) =>
     layer('base', v, { contribute: () => ({ json: { 'package.json': { engines: { node: v } } } }) })
-  expect(() => compose([json('>=22'), json('>=22')], answers)).not.toThrow()
-  expect(() => compose([json('>=22'), json('>=24')], answers)).toThrow(/package.json > engines > node/)
+  expect(() => compose([json('>=22'), json('>=22')], answers, project)).not.toThrow()
+  expect(() => compose([json('>=22'), json('>=24')], answers, project)).toThrow(/package.json > engines > node/)
 
   const env = (description: string) =>
     layer('base', description, { contribute: () => ({ env: [{ key: 'VITE_X', description }] }) })
-  expect(() => compose([env('a'), env('b')], answers)).toThrow(/env key VITE_X/)
+  expect(() => compose([env('a'), env('b')], answers, project)).toThrow(/env key VITE_X/)
 
   const root = (id: string) =>
     layer('observability', id, { contribute: () => ({ entry: [{ kind: 'rootOptions', imports: [], code: '{}' }] }) })
-  expect(() => compose([root('a'), root('b')], answers)).toThrow(/rootOptions/)
+  expect(() => compose([root('a'), root('b')], answers, project)).toThrow(/rootOptions/)
 
   const renders = (id: string) => layer('linting', id, { render: { 'biome.json': () => '' } })
-  expect(() => compose([renders('a'), renders('b')], answers)).toThrow(/biome.json is owned by both/)
+  expect(() => compose([renders('a'), renders('b')], answers, project)).toThrow(/biome.json is owned by both/)
 })
 
 const registry: Layer[] = [
@@ -110,7 +112,11 @@ test('options: alphabetical, None last, incompatible tools hidden', () => {
 })
 
 test('resolve picks layers in order and rejects bad answers', () => {
-  const flags = { projectType: 'vite-react', answers: { ...answers, 'package-security': ['audit', 'osv-scanner'] } }
+  const flags = {
+    dir: 'app',
+    projectType: 'vite-react',
+    answers: { ...answers, 'package-security': ['audit', 'osv-scanner'] },
+  }
   expect(resolve(registry, flags).layers.map((l) => `${l.concern}/${l.id}`)).toEqual([
     'base/base',
     'package-manager/pnpm',
@@ -123,10 +129,21 @@ test('resolve picks layers in order and rejects bad answers', () => {
   ])
 
   const bad = (patch: object) => () =>
-    resolve(registry, { projectType: 'vite-react', answers: { ...answers, ...patch } })
+    resolve(registry, { dir: 'app', projectType: 'vite-react', answers: { ...answers, ...patch } })
   expect(bad({ observability: 'nope' })).toThrow(/--observability nope is not one of: datadog, sentry, none/)
   expect(bad({ observability: 'interface' })).toThrow(/is not one of/)
   expect(bad({ 'package-security': [] })).toThrow(/at least one gate/)
   expect(bad({ ci: 'gitlab-ci', versioning: 'release-please' })).toThrow(/doesn't support --ci gitlab-ci/)
   expect(bad({ linting: undefined })).toThrow(/Missing values for: --linting/)
+  expect(() => resolve(registry, { projectType: 'vite-react', answers: {} })).toThrow(
+    /Missing values for: <dir>, --package-manager, .*--versioning/,
+  )
+})
+
+test('ships _gitignore as .gitignore, and skips a renderer that returns null', () => {
+  const l = layer('base', 'base', {
+    dir: dirWith({ _gitignore: 'dist', 'a/_gitignore': 'gen' }),
+    render: { '.env.example': () => null },
+  })
+  expect([...compose([l], answers, project).keys()]).toEqual(['.gitignore', 'a/.gitignore'])
 })

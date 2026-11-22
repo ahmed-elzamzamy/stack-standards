@@ -286,6 +286,8 @@ From [Base template contents](.wayfinder/tickets/08-base-template.md).
   - `README.md`, which the base renders;
   - `src/main.tsx`, which the base renders, so the diff check treats it as ours.
 
+  The snapshot also drops `vite.config.ts`, which the base renders (§4.4), and the `lint` script. Current create-vite ships oxlint rather than ESLint, so `_oxlintrc.json` and the `oxlint` dependency go too. `.gitignore` is stored as `_gitignore` because npm drops `.gitignore` from packages; the composer renames it on output. `pnpm snapshot` refreshes it and `pnpm snapshot:check` fails on drift.
+
   React and Vite run at whatever versions the snapshot pins. React must be 19 or later for the `createRoot` error hooks.
 - **TypeScript** is required and there is no JS option, because the typed interfaces depend on it. create-vite's tsconfigs are used as they are, with no added flags.
 - **No router** and no router prompt, so tracking's `page()` must not assume a router. **No test runner**.

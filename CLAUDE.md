@@ -31,6 +31,7 @@ The CLI is a **functional core with an imperative shell**.
 - Use the `CONTEXT.md` terms (concern, layer, contribution, adapter, interface, …) in names, messages and docs. Avoid the synonyms it lists (plugin, provider, template, overlay, variant).
 - Small functions that do one thing, named for what they return or do. Prefer a plain function over a class; no classes unless something truly holds state.
 - No speculative abstractions: no interface with one implementation, no option nobody passes, no config for a constant. Three similar lines beat a premature helper.
+- No type casts (`as T`, `as string`). Narrow with a check, a type guard or a better type; where a cast is truly unavoidable, comment why.
 - Types first: model the data in `src/layer.ts` types and let the compiler check the rest. No `any`; narrow `unknown` at the boundary.
 - Errors are thrown as `Error` with a message that names the thing and says how to fix it (`--ci gitlab-ci doesn't support --versioning release-please`). The shell catches, prints the message and exits 1. No stack traces for user errors.
 - Determinism: anything that reaches the output tree is sorted or in a fixed documented order. No dates, random ids or absolute paths in generated files.

@@ -8,9 +8,11 @@
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
     "types": ["node"],
-    "rootDir": "src",
+    "rootDir": ".",
     "outDir": "dist",
-    "noEmit": true
+    "noEmit": true,
+    "allowImportingTsExtensions": false
   },
-  "include": ["src"]
+  "include": ["src", "layers", "scripts"],
+  "exclude": ["layers/**/files"]
 }
