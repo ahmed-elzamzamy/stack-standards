@@ -116,6 +116,8 @@ jobs:
           body="$RUNNER_TEMP/pr-body.md"
           { echo "Closes #$ISSUE"; echo; cat PR_BODY.md 2>/dev/null; echo; echo '🤖 Generated with [Claude Code](https://claude.com/claude-code)'; } > "$body"
           rm -f PR_BODY.md
+          # Agents may change ci.yml (visible in review) but never the automation that runs them.
+          git checkout HEAD -- .github/workflows/agent.yml .github/workflows/review.yml
           git add -A
           git diff --cached --quiet && { echo "Claude made no changes"; exit 1; }
           git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
