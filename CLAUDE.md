@@ -35,7 +35,7 @@ The CLI is a **functional core with an imperative shell**.
 - Errors are thrown as `Error` with a message that names the thing and says how to fix it (`--ci gitlab-ci doesn't support --versioning release-please`). The shell catches, prints the message and exits 1. No stack traces for user errors.
 - Determinism: anything that reaches the output tree is sorted or in a fixed documented order. No dates, random ids or absolute paths in generated files.
 - Dependencies: the CLI has `@clack/prompts` and nothing else at runtime (SPEC §3.1). A new runtime dependency needs a line in the PR saying why the platform can't do it.
-- Comments explain _why_, not _what_. Mark a deliberate shortcut with `// ponytail: <ceiling and upgrade path>`.
+- Don't clutter code with comments: no doc blocks on self-explanatory functions. Add one only for a non-obvious _why_, and keep it to a line. Comments explain _why_, not _what_. Mark a deliberate shortcut with `// ponytail: <ceiling and upgrade path>`.
 - Formatting is Biome's; don't fight it.
 
 ## Testing
