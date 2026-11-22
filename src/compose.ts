@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { join, relative, sep } from 'node:path'
-import { RUNTIME_CONCERNS, type Answers, type Collected, type Layer } from './layer.js'
+import { type Answers, type Collected, type Layer, RUNTIME_CONCERNS } from './layer.js'
 
 /** A generated project: output path -> contents, sorted by path. */
 export type Tree = Map<string, string>
@@ -33,8 +33,9 @@ export function compose(layers: Layer[], answers: Answers): Tree {
   const collected = collect(layers, answers)
 
   for (const [path, patch] of Object.entries(collected.json)) {
-    const base = files.has(path) ? JSON.parse(files.get(path)!) : {}
-    files.set(path, JSON.stringify(sortDeps(merge(base, patch, path, 'owned file')), null, 2) + '\n')
+    const owned = files.get(path)
+    const base = owned === undefined ? {} : JSON.parse(owned)
+    files.set(path, `${JSON.stringify(sortDeps(merge(base, patch, path, 'owned file')), null, 2)}\n`)
   }
 
   for (const layer of layers) {
@@ -67,7 +68,8 @@ export function collect(layers: Layer[], answers: Answers): Collected {
   for (const layer of layers) {
     const c = layer.contribute?.(answers) ?? {}
     const who = label(layer)
-    for (const [path, patch] of Object.entries(c.json ?? {})) out.json[path] = merge(out.json[path] ?? {}, patch, path, who)
+    for (const [path, patch] of Object.entries(c.json ?? {}))
+      out.json[path] = merge(out.json[path] ?? {}, patch, path, who)
     for (const e of c.env ?? []) pushUnique(out.env, e, 'key', 'env key', who)
     for (const s of c.ci ?? []) pushUnique(out.ci, s, 'id', 'CI step', who)
     out.importBans.push(...(c.importBans ?? []))
@@ -78,8 +80,14 @@ export function collect(layers: Layer[], answers: Answers): Collected {
     }
     if (c.readme?.platform) out.readme.platform.push(c.readme.platform)
     if (c.readme?.toolchain) out.readme.toolchain.push(c.readme.toolchain)
-    if (c.lint !== undefined) (once('lint', layer), (out.lint = c.lint))
-    if (c.platformRoot !== undefined) (once('platformRoot', layer), (out.platformRoot = c.platformRoot))
+    if (c.lint !== undefined) {
+      once('lint', layer)
+      out.lint = c.lint
+    }
+    if (c.platformRoot !== undefined) {
+      once('platformRoot', layer)
+      out.platformRoot = c.platformRoot
+    }
   }
 
   const order = (concern: string) => RUNTIME_CONCERNS.indexOf(concern as never)
@@ -97,11 +105,11 @@ function pushUnique<T extends object>(list: T[], item: T, key: keyof T, what: st
   if (JSON.stringify(prev) !== JSON.stringify(item)) throw new Error(`${what} ${String(item[key])} differs in ${who}`)
 }
 
-function merge(a: unknown, b: unknown, path: string, who: string): any {
+function merge<T>(a: T, b: unknown, path: string, who: string): T {
   if (isObject(a) && isObject(b)) {
     const out: Record<string, unknown> = { ...a }
     for (const [k, v] of Object.entries(b)) out[k] = k in a ? merge(a[k], v, `${path} > ${k}`, who) : v
-    return out
+    return out as T
   }
   if (JSON.stringify(a) === JSON.stringify(b)) return a
   throw new Error(`${path}: ${who} sets ${JSON.stringify(b)}, already ${JSON.stringify(a)}`)

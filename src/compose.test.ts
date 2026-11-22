@@ -57,8 +57,9 @@ test('copies owned files, merges JSON with sorted deps, renders shared files', (
   const tree = compose([base, tracking, sentry, obs, linter], answers)
 
   expect([...tree.keys()]).toEqual(['biome.json', 'package.json', 'src/App.tsx', 'src/main.tsx'])
-  expect(JSON.parse(tree.get('package.json')!).dependencies).toEqual({ '@sentry/react': '^10.0.0', react: '^19.0.0' })
-  expect(Object.keys(JSON.parse(tree.get('package.json')!).dependencies)).toEqual(['@sentry/react', 'react'])
+  const deps = JSON.parse(tree.get('package.json') ?? '{}').dependencies
+  expect(deps).toEqual({ '@sentry/react': '^10.0.0', react: '^19.0.0' })
+  expect(Object.keys(deps)).toEqual(['@sentry/react', 'react'])
   expect(tree.get('src/main.tsx')).toBe('observability:ErrorBoundary\ntracking:t()') // fixed concern order
   expect(tree.get('biome.json')).toBe('@sentry/**') // deduped
   expect(compose([base, tracking, sentry, obs, linter], answers)).toEqual(tree) // deterministic
@@ -69,14 +70,17 @@ test('collisions throw', () => {
   const b = layer('linting', 'biome', { dir: dirWith({ 'x.txt': 'b' }) })
   expect(() => compose([a, b], answers)).toThrow(/x.txt is owned by both base\/base and linting\/biome/)
 
-  const json = (v: string) => layer('base', v, { contribute: () => ({ json: { 'package.json': { engines: { node: v } } } }) })
+  const json = (v: string) =>
+    layer('base', v, { contribute: () => ({ json: { 'package.json': { engines: { node: v } } } }) })
   expect(() => compose([json('>=22'), json('>=22')], answers)).not.toThrow()
   expect(() => compose([json('>=22'), json('>=24')], answers)).toThrow(/package.json > engines > node/)
 
-  const env = (description: string) => layer('base', description, { contribute: () => ({ env: [{ key: 'VITE_X', description }] }) })
+  const env = (description: string) =>
+    layer('base', description, { contribute: () => ({ env: [{ key: 'VITE_X', description }] }) })
   expect(() => compose([env('a'), env('b')], answers)).toThrow(/env key VITE_X/)
 
-  const root = (id: string) => layer('observability', id, { contribute: () => ({ entry: [{ kind: 'rootOptions', imports: [], code: '{}' }] }) })
+  const root = (id: string) =>
+    layer('observability', id, { contribute: () => ({ entry: [{ kind: 'rootOptions', imports: [], code: '{}' }] }) })
   expect(() => compose([root('a'), root('b')], answers)).toThrow(/rootOptions/)
 
   const renders = (id: string) => layer('linting', id, { render: { 'biome.json': () => '' } })
@@ -118,7 +122,8 @@ test('resolve picks layers in order and rejects bad answers', () => {
     'ci/github-actions',
   ])
 
-  const bad = (patch: object) => () => resolve(registry, { projectType: 'vite-react', answers: { ...answers, ...patch } })
+  const bad = (patch: object) => () =>
+    resolve(registry, { projectType: 'vite-react', answers: { ...answers, ...patch } })
   expect(bad({ observability: 'nope' })).toThrow(/--observability nope is not one of: datadog, sentry, none/)
   expect(bad({ observability: 'interface' })).toThrow(/is not one of/)
   expect(bad({ 'package-security': [] })).toThrow(/at least one gate/)

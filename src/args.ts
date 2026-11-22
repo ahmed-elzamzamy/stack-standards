@@ -25,9 +25,7 @@ export function parseFlags(argv: string[]): Flags {
     args: argv,
     strict: true,
     allowPositionals: true,
-    options: Object.fromEntries(
-      ['project-type', ...CONCERN_FLAGS].map((name) => [name, { type: 'string' as const }]),
-    ),
+    options: Object.fromEntries(['project-type', ...CONCERN_FLAGS].map((name) => [name, { type: 'string' as const }])),
   })
   if (positionals.length > 1) throw new Error(`Expected one target directory, got: ${positionals.join(' ')}`)
 
@@ -36,7 +34,13 @@ export function parseFlags(argv: string[]): Flags {
     const value = values[flag]
     if (typeof value !== 'string') continue
     // package-security is the one multiselect: a comma-separated list of gates.
-    answers[flag] = flag === 'package-security' ? value.split(',').map((s) => s.trim()).filter(Boolean) : value
+    answers[flag] =
+      flag === 'package-security'
+        ? value
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : value
   }
 
   return {

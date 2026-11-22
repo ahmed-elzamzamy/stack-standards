@@ -1,0 +1,133 @@
+# The repo owner's PR feedback drives this workflow: a PR comment or a submitted review makes
+# Claude Code update the PR branch, and a feedback rule that applies beyond the PR lands in CLAUDE.md.
+# Only the owner's comments trigger it (the repo is public). The workflow's own replies carry
+# REPLY_MARKER and are skipped, since they post with the owner's token.
+name: Review
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review:
+    types: [submitted]
+
+concurrency:
+  group: review-${{ github.event.issue.number || github.event.pull_request.number }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  REPLY_MARKER: "<!-- agent-reply -->"
+
+jobs:
+  update:
+    if: >-
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request
+        && github.event.comment.user.login == github.repository_owner
+        && !contains(github.event.comment.body, '<!-- agent-reply -->'))
+      || (github.event_name == 'pull_request_review'
+        && github.event.review.user.login == github.repository_owner
+        && github.event.review.state != 'approved'
+        && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      PR: ${{ github.event.issue.number || github.event.pull_request.number }}
+    steps:
+      - id: pr
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+        run: |
+          gh pr view "$PR" -R "$GITHUB_REPOSITORY" --json headRefName,isCrossRepository,state \
+            --jq '"branch=\(.headRefName)\nfork=\(.isCrossRepository)\nstate=\(.state)"' >> "$GITHUB_OUTPUT"
+
+      - name: Collect feedback
+        id: feedback
+        if: steps.pr.outputs.fork == 'false' && steps.pr.outputs.state == 'OPEN'
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+          EVENT: ${{ github.event_name }}
+          COMMENT: ${{ github.event.comment.body }}
+          REVIEW_BODY: ${{ github.event.review.body }}
+          REVIEW_ID: ${{ github.event.review.id }}
+        run: |
+          file="$RUNNER_TEMP/feedback.md"
+          if [ "$EVENT" = issue_comment ]; then
+            printf '%s\n' "$COMMENT" > "$file"
+          else
+            { [ -n "$REVIEW_BODY" ] && printf 'Review summary:\n%s\n\n' "$REVIEW_BODY"
+              gh api "repos/$GITHUB_REPOSITORY/pulls/$PR/reviews/$REVIEW_ID/comments" \
+                --jq '.[] | "On `\(.path)` line \(.line // .original_line):\n```diff\n\(.diff_hunk)\n```\n\(.body)\n"'
+            } > "$file"
+          fi
+          if [ ! -s "$file" ]; then echo "has=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          { echo "has=true"; echo 'text<<__FEEDBACK_EOF__'; cat "$file"; echo '__FEEDBACK_EOF__'; } >> "$GITHUB_OUTPUT"
+
+      - if: steps.feedback.outputs.has == 'true'
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ steps.pr.outputs.branch }}
+          fetch-depth: 0
+          persist-credentials: false
+      - if: steps.feedback.outputs.has == 'true'
+        uses: pnpm/action-setup@v4
+      - if: steps.feedback.outputs.has == 'true'
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+      - if: steps.feedback.outputs.has == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - if: steps.feedback.outputs.has == 'true'
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          # ponytail: full tool access is acceptable on a throwaway runner whose only token is read-only.
+          claude_args: --permission-mode bypassPermissions --max-turns 200
+          prompt: |
+            You are updating pull request #${{ env.PR }} (branch `${{ steps.pr.outputs.branch }}`, checked out)
+            to address the repository owner's review feedback below. `git log origin/main..HEAD` and
+            `git diff origin/main...HEAD` show the PR so far; its ticket is linked from the PR description
+            (`gh` is not available, so rely on the diff, CLAUDE.md and SPEC.md).
+
+            Feedback:
+
+            ${{ steps.feedback.outputs.text }}
+
+            Rules:
+            1. Address every point. If a point is a question, answer it; change code only if the answer requires it.
+            2. Follow CLAUDE.md. `pnpm typecheck`, `pnpm lint` and `pnpm test` must pass when you finish.
+            3. If the feedback states a rule that should apply beyond this PR (a coding, testing, architecture
+               or PR standard), add it to the right section of CLAUDE.md, worded as a general rule.
+            4. Do not commit or push: the workflow does that.
+            5. Write your reply to the owner in REPLY.md at the repo root: one bullet per feedback point saying
+               what you changed (or your answer), then a line "Standards added:" listing any CLAUDE.md rules
+               you added, or "none".
+
+      - name: Push and reply
+        if: steps.feedback.outputs.has == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+          BRANCH: ${{ steps.pr.outputs.branch }}
+        run: |
+          reply="$RUNNER_TEMP/reply.md"
+          { echo "$REPLY_MARKER"; cat REPLY.md 2>/dev/null || echo "Done, see the latest commit."; } > "$reply"
+          rm -f REPLY.md
+          git add -A
+          if ! git diff --cached --quiet; then
+            git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+              commit -q -m "Address review feedback" -m "Co-Authored-By: Claude <noreply@anthropic.com>"
+            git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$BRANCH"
+          fi
+          gh pr comment "$PR" -R "$GITHUB_REPOSITORY" --body-file "$reply"
+
+      - name: Report failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh pr comment "$PR" -R "$GITHUB_REPOSITORY" --body "$REPLY_MARKER"$'\n'"Couldn't apply the feedback: $RUN_URL"

@@ -10,7 +10,7 @@ name: Agent
 
 on:
   schedule:
-    - cron: '*/10 * * * *'
+    - cron: "*/10 * * * *"
   workflow_dispatch:
 
 concurrency:
@@ -100,11 +100,13 @@ jobs:
 
             ${{ steps.issue.outputs.text }}
 
-            Work in the current checkout. Read SPEC.md and CONTEXT.md as the issue says. Follow the
-            existing code style. Run `pnpm typecheck` and `pnpm test` until both pass.
+            Work in the current checkout. CLAUDE.md holds this repo's standards and Definition of
+            done: follow it. Read SPEC.md and CONTEXT.md as the issue says. Meet every acceptance
+            criterion in the issue. `pnpm typecheck`, `pnpm lint` and `pnpm test` must all pass
+            before you finish.
             Do not commit, push or open a PR: the workflow does that. When done, write the PR
-            description to PR_BODY.md at the repo root: what you built, the fill-in decisions you
-            made, and anything left undone.
+            description to PR_BODY.md at the repo root, in the format CLAUDE.md gives under
+            "Pull requests", without the `Closes` line (the workflow adds it).
 
       - name: Open PR
         env:

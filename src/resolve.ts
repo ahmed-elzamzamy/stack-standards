@@ -1,5 +1,5 @@
 import { CONCERN_FLAGS, type ConcernFlag, type Flags } from './args.js'
-import { INTERFACE, NONE, RUNTIME_CONCERNS, SKIPPABLE, type Answers, type Layer } from './layer.js'
+import { type Answers, INTERFACE, type Layer, NONE, RUNTIME_CONCERNS, SKIPPABLE } from './layer.js'
 
 export interface Option {
   id: string
@@ -28,7 +28,7 @@ export function resolve(registry: Layer[], flags: Flags): { answers: Answers; la
   const errors: string[] = []
   const ci = flags.answers.ci as string
   for (const flag of CONCERN_FLAGS) {
-    const value = flags.answers[flag]!
+    const value = flags.answers[flag] ?? []
     const picked = Array.isArray(value) ? value : [value]
     if (flag === 'package-security' && picked.length === 0) errors.push('--package-security needs at least one gate')
     const valid = options(registry, flag, flag === 'versioning' ? ci : undefined).map((o) => o.id)

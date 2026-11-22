@@ -2,9 +2,7 @@ import { expect, test } from 'vitest'
 import { parseFlags } from './args.js'
 
 test('parses dir, concern flags and the package-security list', () => {
-  expect(
-    parseFlags(['my-app', '--observability', 'sentry', '--package-security', 'audit, osv-scanner']),
-  ).toEqual({
+  expect(parseFlags(['my-app', '--observability', 'sentry', '--package-security', 'audit, osv-scanner'])).toEqual({
     dir: 'my-app',
     projectType: 'vite-react',
     answers: { observability: 'sentry', 'package-security': ['audit', 'osv-scanner'] },
