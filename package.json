@@ -1,0 +1,29 @@
+{
+  "name": "create-stack-standards",
+  "version": "0.0.0",
+  "description": "Generate a Vite + React project once, with non-feature concerns built in.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "create-stack-standards": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@clack/prompts": "^1.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.1"
+  }
+}
