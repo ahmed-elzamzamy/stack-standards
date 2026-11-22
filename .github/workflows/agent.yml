@@ -1,0 +1,143 @@
+# Moves on the project board drive this workflow: a card in "Agent doing" gets implemented by
+# Claude Code and opened as a PR, then the card moves to "In review" (or back to "Todo" on failure).
+# User-owned projects emit no Actions event when a card moves, so this polls.
+#
+# Setup:
+#   secrets.PROJECT_TOKEN            classic PAT with `repo` and `project` scopes (reads the board, pushes, opens PRs)
+#   secrets.CLAUDE_CODE_OAUTH_TOKEN  from `claude setup-token`
+#   vars.PROJECT_NUMBER              the board's number, from its URL
+name: Agent
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: agent-pick
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  OWNER: ${{ github.repository_owner }}
+  PROJECT_NUMBER: ${{ vars.PROJECT_NUMBER }}
+
+jobs:
+  pick:
+    if: vars.PROJECT_NUMBER != ''
+    runs-on: ubuntu-latest
+    outputs:
+      items: ${{ steps.pick.outputs.items }}
+    steps:
+      - id: pick
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          items=$(gh api graphql -F owner="$OWNER" -F number="$PROJECT_NUMBER" -f query='
+            query($owner: String!, $number: Int!) {
+              user(login: $owner) { projectV2(number: $number) { items(first: 100) { nodes {
+                id
+                status: fieldValueByName(name: "Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } }
+                content { ... on Issue { number title state repository { nameWithOwner } labels(first: 20) { nodes { name } } } }
+              } } } }
+            }' --jq "[.data.user.projectV2.items.nodes[]
+              | select(.status.name == \"Agent doing\" and .content.state == \"OPEN\"
+                       and .content.repository.nameWithOwner == \"$REPO\"
+                       and ([.content.labels.nodes[].name] | index(\"agent-running\") | not))
+              | {item: .id, issue: .content.number, title: .content.title}]")
+          echo "items=$items" >> "$GITHUB_OUTPUT"
+          # The label is the claim, so the next poll skips these.
+          for n in $(echo "$items" | jq '.[].issue'); do gh issue edit "$n" -R "$REPO" --add-label agent-running; done
+          echo "Picked: $items"
+
+  implement:
+    needs: pick
+    if: needs.pick.outputs.items != '[]' && needs.pick.outputs.items != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        card: ${{ fromJSON(needs.pick.outputs.items) }}
+    env:
+      ISSUE: ${{ matrix.card.issue }}
+      BRANCH: agent/issue-${{ matrix.card.issue }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false # Claude gets no push access; the PR step pushes with the PAT
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - id: issue
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+        run: |
+          {
+            echo 'text<<__ISSUE_EOF__'
+            gh issue view "$ISSUE" -R "$GITHUB_REPOSITORY" --json title,body --jq '"# " + .title + "\n\n" + .body'
+            echo '__ISSUE_EOF__'
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          # ponytail: full tool access is acceptable on a throwaway runner whose only token is read-only.
+          claude_args: --permission-mode bypassPermissions --max-turns 300
+          prompt: |
+            Implement GitHub issue #${{ env.ISSUE }} in this repository. The issue:
+
+            ${{ steps.issue.outputs.text }}
+
+            Work in the current checkout. Read SPEC.md and CONTEXT.md as the issue says. Follow the
+            existing code style. Run `pnpm typecheck` and `pnpm test` until both pass.
+            Do not commit, push or open a PR: the workflow does that. When done, write the PR
+            description to PR_BODY.md at the repo root: what you built, the fill-in decisions you
+            made, and anything left undone.
+
+      - name: Open PR
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+          TITLE: ${{ matrix.card.title }}
+        run: |
+          body="$RUNNER_TEMP/pr-body.md"
+          { echo "Closes #$ISSUE"; echo; cat PR_BODY.md 2>/dev/null; echo; echo '🤖 Generated with [Claude Code](https://claude.com/claude-code)'; } > "$body"
+          rm -f PR_BODY.md
+          git add -A
+          git diff --cached --quiet && { echo "Claude made no changes"; exit 1; }
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit -q -m "$TITLE (#$ISSUE)" -m "Co-Authored-By: Claude <noreply@anthropic.com>"
+          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$BRANCH"
+          gh pr view "$BRANCH" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
+            || gh pr create -R "$GITHUB_REPOSITORY" --head "$BRANCH" --title "$TITLE" --body-file "$body"
+
+      - name: Move card and release claim
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+          ITEM: ${{ matrix.card.item }}
+          TARGET: ${{ job.status == 'success' && 'In review' || 'Todo' }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          read -r project field option < <(gh api graphql -F owner="$OWNER" -F number="$PROJECT_NUMBER" -f query='
+            query($owner: String!, $number: Int!) {
+              user(login: $owner) { projectV2(number: $number) { id
+                field(name: "Status") { ... on ProjectV2SingleSelectField { id options { id name } } } } }
+            }' --jq ".data.user.projectV2 | [.id, .field.id, (.field.options[] | select(.name == \"$TARGET\") | .id)] | @tsv")
+          gh api graphql -f query='
+            mutation($project: ID!, $item: ID!, $field: ID!, $option: String!) {
+              updateProjectV2ItemFieldValue(input: {projectId: $project, itemId: $item, fieldId: $field,
+                value: {singleSelectOptionId: $option}}) { projectV2Item { id } }
+            }' -f project="$project" -f item="$ITEM" -f field="$field" -f option="$option" >/dev/null
+          [ "$TARGET" = Todo ] && gh issue comment "$ISSUE" -R "$GITHUB_REPOSITORY" --body "Agent run failed, card moved back to Todo: $RUN_URL"
+          gh issue edit "$ISSUE" -R "$GITHUB_REPOSITORY" --remove-label agent-running
