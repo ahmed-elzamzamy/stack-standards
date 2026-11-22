@@ -5,21 +5,26 @@
   "license": "MIT",
   "type": "module",
   "bin": {
-    "create-stack-standards": "dist/cli.js"
+    "create-stack-standards": "dist/src/cli.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "layers",
+    "!layers/**/*.ts",
+    "layers/**/files/**"
   ],
   "engines": {
     "node": ">=22"
   },
   "packageManager": "pnpm@12.21.0",
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "typecheck": "tsc",
     "lint": "biome ci .",
     "format": "biome check --write .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "snapshot": "node scripts/snapshot.ts",
+    "snapshot:check": "node scripts/snapshot.ts --check"
   },
   "dependencies": {
     "@clack/prompts": "^1.9.0"

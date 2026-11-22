@@ -19,7 +19,7 @@ export interface EntryContribution {
   kind: 'init' | 'awaitedInit' | 'wrapper' | 'rootOptions'
   /** import line(s) main.tsx needs, e.g. `import { observability } from './platform/observability'` */
   imports: string[]
-  /** init/awaitedInit: a statement; wrapper: the component name; rootOptions: an object expression */
+  /** init: a statement; awaitedInit: a call expression, rendered after `await`; wrapper: the component name; rootOptions: an object expression */
   code: string
 }
 
@@ -48,6 +48,22 @@ export interface ToolchainRow {
   note?: string
 }
 
+/** The base's React lint rules and globs, in ESLint's shape; every linting layer translates them (SPEC §5.2). */
+export interface LintEntries {
+  files: string[]
+  ignores: string[]
+  rules: Record<string, unknown>
+}
+
+/** Who and what is being generated; the base's README needs it, nothing else does. */
+export interface Project {
+  /** the target directory as the user typed it, for the reproducing command */
+  dir: string
+  /** the directory's basename, used as the README title */
+  name: string
+  cliVersion: string
+}
+
 export interface Contributions {
   /** deep-merged into the JSON file at each path (package.json, tsconfig*.json, …) */
   json?: Record<string, object>
@@ -58,7 +74,7 @@ export interface Contributions {
   allowBuilds?: string[]
   readme?: { platform?: PlatformRow; toolchain?: ToolchainRow }
   // base-only inputs to toolchain layers:
-  lint?: unknown
+  lint?: LintEntries
   platformRoot?: string
 }
 
@@ -71,11 +87,12 @@ export interface Collected {
   ci: CiStep[]
   allowBuilds: string[]
   readme: { platform: PlatformRow[]; toolchain: ToolchainRow[] }
-  lint?: unknown
+  lint?: LintEntries
   platformRoot?: string
 }
 
-export type Renderer = (collected: Collected, answers: Answers) => string
+/** Returns the file's contents, or `null` when the file shouldn't be written. */
+export type Renderer = (collected: Collected, answers: Answers, project: Project) => string | null
 
 export interface Layer {
   concern: ConcernId

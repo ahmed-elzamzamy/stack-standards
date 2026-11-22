@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { join, relative, sep } from 'node:path'
-import { type Answers, type Collected, type Layer, RUNTIME_CONCERNS } from './layer.js'
+import { type Answers, type Collected, type Layer, type Project, RUNTIME_CONCERNS } from './layer.js'
 
 /** A generated project: output path -> contents, sorted by path. */
 export type Tree = Map<string, string>
@@ -11,7 +11,7 @@ const label = (l: Layer) => `${l.concern}/${l.id}`
  * Builds the project in memory (SPEC §4): owned files copied verbatim, JSON deep-merged,
  * shared files rendered by their one owning layer. Any clash throws.
  */
-export function compose(layers: Layer[], answers: Answers): Tree {
+export function compose(layers: Layer[], answers: Answers, project: Project): Tree {
   const owner = new Map<string, string>()
   const claim = (path: string, layer: Layer) => {
     const prev = owner.get(path)
@@ -24,7 +24,11 @@ export function compose(layers: Layer[], answers: Answers): Tree {
     if (!layer.dir) continue
     for (const entry of readdirSync(layer.dir, { recursive: true, withFileTypes: true })) {
       if (!entry.isFile()) continue
-      const path = relative(layer.dir, join(entry.parentPath, entry.name)).split(sep).join('/')
+      // npm drops `.gitignore` from packages, so layers ship it as `_gitignore`.
+      const path = relative(layer.dir, join(entry.parentPath, entry.name))
+        .split(sep)
+        .join('/')
+        .replace(/(^|\/)_gitignore$/, '$1.gitignore')
       claim(path, layer)
       files.set(path, readFileSync(join(entry.parentPath, entry.name), 'utf8'))
     }
@@ -41,7 +45,8 @@ export function compose(layers: Layer[], answers: Answers): Tree {
   for (const layer of layers) {
     for (const [path, render] of Object.entries(layer.render ?? {})) {
       claim(path, layer)
-      files.set(path, render(collected, answers))
+      const body = render(collected, answers, project)
+      if (body !== null) files.set(path, body)
     }
   }
 

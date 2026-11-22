@@ -22,8 +22,11 @@ export function options(registry: Layer[], concern: ConcernFlag, ci?: string): O
 
 /** Validates complete flags and returns the answers plus the layers to compose, in composition order. */
 export function resolve(registry: Layer[], flags: Flags): { answers: Answers; layers: Layer[] } {
-  const missing = CONCERN_FLAGS.filter((f) => flags.answers[f] === undefined)
-  if (missing.length) throw new Error(`Missing values for: ${missing.map((f) => `--${f}`).join(', ')}`)
+  const missing = [
+    ...(flags.dir === undefined ? ['<dir>'] : []),
+    ...CONCERN_FLAGS.filter((f) => flags.answers[f] === undefined).map((f) => `--${f}`),
+  ]
+  if (missing.length) throw new Error(`Missing values for: ${missing.join(', ')}`)
 
   const errors: string[] = []
   const ci = flags.answers.ci as string
