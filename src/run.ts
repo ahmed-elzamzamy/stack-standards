@@ -9,7 +9,8 @@ import { resolve } from './resolve.js'
 export function generate(argv: string[], registry: Layer[], cliVersion: string): { dir: string; tree: Tree } {
   const flags = parseFlags(argv)
   const { answers, layers } = resolve(registry, flags)
-  const dir = flags.dir as string // resolve() has already rejected a missing <dir>
+  const dir = flags.dir
+  if (dir === undefined) throw new Error('Missing <dir>; pass the target directory')
   const project = { dir, name: basename(resolvePath(dir)), cliVersion }
   return { dir, tree: compose(layers, answers, project) }
 }
