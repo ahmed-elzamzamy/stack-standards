@@ -53,6 +53,7 @@ The CLI is a **functional core with an imperative shell**.
   - **What**: what was built, in a few bullets.
   - **Acceptance criteria**: each criterion from the ticket, checked off or explained.
   - **Decisions**: spec fill-ins and judgement calls, one line each with the reason.
+  - **How to test**: steps a reviewer can copy and run on their machine to see the change work, each with the expected result. Start from `gh pr checkout <n> && pnpm install`, then the checks (`pnpm typecheck && pnpm lint && pnpm test`), then a hands-on step that exercises the feature itself: for example, build and run the CLI with a full flag set into a temp folder and say which files to open and what to look for. If nothing user-visible changed yet, say so and name the test file that covers it.
   - **Not done / follow-ups**: anything deferred, so it can become a ticket.
 - Keep the diff to the ticket. Unrelated fixes go in their own PR or the follow-ups list.
 - Commit messages: imperative mood, ≤ 72-character subject.

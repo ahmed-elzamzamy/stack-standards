@@ -111,3 +111,19 @@ jobs:
             gh issue comment "$ISSUE" -R "$GITHUB_REPOSITORY" --body "Agent run failed, card moved back to Todo. Add the \`agent\` label again to retry: $RUN_URL"
           fi
           gh issue edit "$ISSUE" -R "$GITHUB_REPOSITORY" --remove-label agent
+
+      - name: Notify phone
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          OK: ${{ job.status == 'success' }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          [ -n "$NTFY_TOPIC" ] || exit 0
+          if [ "$OK" = true ]; then
+            title="PR ready: #$ISSUE $TITLE"; url=$(gh pr view "$BRANCH" -R "$GITHUB_REPOSITORY" --json url --jq .url); tags=white_check_mark
+          else
+            title="Agent failed: #$ISSUE $TITLE"; url=$RUN_URL; tags=x
+          fi
+          curl -sS -H "Title: $title" -H "Click: $url" -H "Tags: $tags" -d "$url" "https://ntfy.sh/$NTFY_TOPIC" >/dev/null

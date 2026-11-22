@@ -133,3 +133,14 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           gh pr comment "$PR" -R "$GITHUB_REPOSITORY" --body "$REPLY_MARKER"$'\n'"Couldn't apply the feedback: $RUN_URL"
+
+      - name: Notify phone
+        if: always() && steps.feedback.outputs.has == 'true'
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          OK: ${{ job.status == 'success' }}
+          PR_URL: ${{ github.server_url }}/${{ github.repository }}/pull/${{ env.PR }}
+        run: |
+          [ -n "$NTFY_TOPIC" ] || exit 0
+          if [ "$OK" = true ]; then title="Feedback applied on PR #$PR"; tags=speech_balloon; else title="Feedback failed on PR #$PR"; tags=x; fi
+          curl -sS -H "Title: $title" -H "Click: $PR_URL" -H "Tags: $tags" -d "$PR_URL" "https://ntfy.sh/$NTFY_TOPIC" >/dev/null
